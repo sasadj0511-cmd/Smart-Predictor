@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function isValidPrediction(data) {
+      return hasOnlyAllowedFields(['fixture_id', 'match_name', 'prediction', 'confidence', 'analysis', 'timestamp', 'status']) &&
+             data.fixture_id is number &&
+             data.match_name is string &&
+             data.prediction is string &&
+             data.confidence is number &&
+             data.analysis is string &&
+             data.status is string;
+    }
+
+    match /predictions/{predictionId} {
+      // Allow any authenticated user to read and create predictions for testing
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Temporarily permissive for testing
+      allow update, delete: if isAuthenticated(); // Temporarily permissive for testing
+    }
+  }
+}

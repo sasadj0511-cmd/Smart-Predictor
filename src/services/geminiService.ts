@@ -90,3 +90,24 @@ Sada analiziraj dati meč i vrati tačno definisan JSON.`;
 
   return response.text ? JSON.parse(response.text) : {};
 }
+
+export async function sendChatMessage(
+  apiKey: string,
+  message: string,
+  context?: string
+): Promise<string> {
+  const ai = getGemini(apiKey);
+  const prompt = context
+    ? `${context}\n\nKorisnik: ${message}`
+    : message;
+
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      temperature: 0.5
+    }
+  });
+
+  return response.text || "AI nije vratio odgovor.";
+}

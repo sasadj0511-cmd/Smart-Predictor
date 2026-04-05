@@ -4,6 +4,8 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
 
+const SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3";
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -33,6 +35,20 @@ async function startServer() {
     if (comp.includes("super lig")) return "Turkish";
     if (comp.includes("eredivisie")) return "Dutch";
     return "English";
+  }
+
+  async function sportmonksGet(
+    token: string,
+    endpoint: string,
+    params: Record<string, string> = {}
+  ) {
+    return axios.get(`${SPORTMONKS_BASE_URL}/${endpoint}`, {
+      params: {
+        ...params,
+        api_token: token,
+      },
+      timeout: 15000,
+    });
   }
 // ============================================================
 // GET /api/config - Šalje ključeve frontendu
@@ -85,12 +101,10 @@ app.get("/api/config", (req, res) => {
     // 1. Try Sportmonks
     if (sportmonksToken) {
       try {
-        const response = await axios.get(
-          `https://api.sportmonks.com/v3/football/fixtures/date/${today}`,
-          {
-            params: { include: "participants;league;odds" },
-            headers: { Authorization: sportmonksToken },
-          }
+        const response = await sportmonksGet(
+          sportmonksToken,
+          `football/fixtures/date/${today}`,
+          { include: "participants;league;odds" }
         );
 
         const allFixtures: any[] = response.data.data || [];
@@ -243,11 +257,11 @@ app.get("/api/config", (req, res) => {
       if (sportmonksToken && homeId && awayId && homeId !== 'null' && awayId !== 'null') {
         try {
           // Fetch H2H
-          const h2hUrl = `https://api.sportmonks.com/v3/football/fixtures/head-to-head/${homeId}/${awayId}`;
-          const h2hRes = await axios.get(h2hUrl, {
-            params: { include: "participants" },
-            headers: { Authorization: sportmonksToken }
-          });
+          const h2hRes = await sportmonksGet(
+            sportmonksToken,
+            `football/fixtures/head-to-head/${homeId}/${awayId}`,
+            { include: "participants" }
+          );
 
           const h2hData: any[] = h2hRes.data.data || [];
           const recentH2H = h2hData

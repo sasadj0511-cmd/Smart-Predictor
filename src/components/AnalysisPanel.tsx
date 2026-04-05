@@ -8,7 +8,7 @@ interface AnalysisPanelProps {
 
 export const AnalysisPanel: React.FC<AnalysisPanelProps> = ({ currentMatch, analyzedCount }) => {
   return (
-    <div>
+    <div className="min-h-[160px]">
       
       <h2 className="text-sm text-slate-400 mb-3 uppercase tracking-wider">
         AI Status

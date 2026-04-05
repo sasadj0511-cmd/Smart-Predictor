@@ -14,7 +14,7 @@ export const ProfitChart: React.FC<ProfitChartProps> = ({ data }) => {
         <span className="text-green-500">📈</span> Bankroll Growth
       </h3>
 
-      <div className="h-64 w-full">
+      <div className="h-64 min-h-[260px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />

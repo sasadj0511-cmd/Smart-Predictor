@@ -1,3 +1,10 @@
+const API_PROXY_PREFIX = '/api';
+
+function buildApiProxyUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_PROXY_PREFIX}${normalizedPath}`;
+}
+
 async function safeFetch(url: string, options?: RequestInit) {
   try {
     const res = await fetch(url, options);
@@ -23,8 +30,9 @@ async function safeFetch(url: string, options?: RequestInit) {
 }
 
 export async function fetchMatches() {
-  console.log('📡 Pozivam API: /api/matches');
-  return safeFetch('/api/matches');
+  const url = buildApiProxyUrl('/matches');
+  console.log(`📡 Pozivam API proxy: ${url}`);
+  return safeFetch(url);
 }
 
 export async function fetchMatchStats(match: any) {

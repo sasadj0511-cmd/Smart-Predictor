@@ -16,6 +16,10 @@ export function useAutoPilot(
   addLog: (msg: string, type?: LogEntry['type']) => void,
   evaluateValueBet: (probs: any, odds: any, matchLabel: string) => any
 ) {
+  const PRE_KICKOFF_BUFFER_MINUTES = 90;
+  const MIN_DELAY_MS = 60 * 1000; // 1 min
+  const NO_MATCHES_RETRY_MS = 30 * 60 * 1000; // 30 min fallback
+
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [status, setStatus] = useState('Sistem spreman');
   const [currentMatch, setCurrentMatch] = useState("");
@@ -23,6 +27,32 @@ export function useAutoPilot(
   const [matches, setMatches] = useState<Match[]>([]);
   const sessionAnalyzedIds = useRef<Set<string>>(new Set());
   const autoPilotTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const calculateNextCycleDelay = (upcomingMatches: Match[]) => {
+    const nowMs = Date.now();
+    const upcomingStartTimes = upcomingMatches
+      .map((match) => new Date(match.startTime).getTime())
+      .filter((timeMs) => !Number.isNaN(timeMs) && timeMs > nowMs)
+      .sort((a, b) => a - b);
+
+    if (upcomingStartTimes.length === 0) {
+      return {
+        delayMs: NO_MATCHES_RETRY_MS,
+        reason: 'Nema budućih utakmica — retry za 30 min',
+      };
+    }
+
+    const nextMatchStartMs = upcomingStartTimes[0];
+    const targetAnalysisMs = nextMatchStartMs - PRE_KICKOFF_BUFFER_MINUTES * 60 * 1000;
+    const calculatedDelay = targetAnalysisMs - nowMs;
+    const delayMs = Math.max(MIN_DELAY_MS, calculatedDelay);
+    const minutesUntilRun = Math.ceil(delayMs / 60000);
+
+    return {
+      delayMs,
+      reason: `Sledeći ciklus za ~${minutesUntilRun} min (90 min pre sledeće utakmice)`,
+    };
+  };
 
   const analyzeMatch = async (match: Match): Promise<boolean> => {
     setCurrentMatch(`${match.homeTeam} vs ${match.awayTeam}`);
@@ -150,7 +180,7 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
       if (!data.success) {
         addLog(`Greška pri preuzimanju utakmica: ${data.error || 'Nepoznata greška'}`, 'error');
         setStatus('Greška u API-ju');
-        return;
+        return { delayMs: NO_MATCHES_RETRY_MS, reason: 'API greška - retry za 30 min' };
       }
 
       const currentMatches = data.matches || [];
@@ -159,7 +189,7 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
       if (currentMatches.length === 0) {
         addLog('Nema dostupnih utakmica za analizu u vašem planu.', 'warning');
         setStatus('Nema utakmica');
-        return;
+        return calculateNextCycleDelay([]);
       }
 
       addLog(`Pronađeno ${currentMatches.length} utakmica za analizu.`, 'info');
@@ -204,11 +234,14 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
       }
 
       addLog(`Ciklus završen. Analizirano: ${analyzedCount}, Preskočeno: ${skippedCount}`, 'success');
-      setStatus('Sistem spreman (Auto-Pilot aktivan)');
+      const nextTiming = calculateNextCycleDelay(currentMatches);
+      setStatus(nextTiming.reason);
       setCurrentMatch("");
+      return nextTiming;
     } catch (error) {
       addLog('Greška u ciklusu analize: ' + error, 'error');
       setStatus('Greška u sistemu');
+      return { delayMs: NO_MATCHES_RETRY_MS, reason: 'Greška - retry za 30 min' };
     } finally {
       setIsAnalyzing(false);
     }
@@ -220,11 +253,13 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
     const runAutoPilot = async () => {
       if (!isAutoPilot) return;
       
-      await startAutoPilotCycle();
+      const nextTiming = await startAutoPilotCycle();
       
       // Zakazujemo sledeći ciklus tek nakon što se trenutni završi
       if (isAutoPilot) {
-        timeoutId = setTimeout(runAutoPilot, 15 * 60 * 1000);
+        const delayMs = nextTiming?.delayMs ?? NO_MATCHES_RETRY_MS;
+        addLog(`⏱️ Auto-Pilot: ${nextTiming?.reason || 'Sledeći ciklus po fallback intervalu.'}`, 'info');
+        timeoutId = setTimeout(runAutoPilot, delayMs);
       }
     };
 

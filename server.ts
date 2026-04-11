@@ -50,6 +50,49 @@ async function startServer() {
       timeout: 15000,
     });
   }
+
+  async function getNextSmartTimingStatus(token?: string): Promise<string> {
+    if (!token) {
+      return "⏱️ Smart timing: fallback 30 min (nema Sportmonks ključa)";
+    }
+
+    const now = new Date();
+    const datesToCheck = [0, 1].map((offsetDays) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() + offsetDays);
+      return d.toISOString().split("T")[0];
+    });
+
+    try {
+      const fixturesPerDay = await Promise.all(
+        datesToCheck.map((date) =>
+          sportmonksGet(token, `football/fixtures/date/${date}`, {
+            include: "league",
+          })
+        )
+      );
+
+      const futureNotStarted = fixturesPerDay
+        .flatMap((res) => res.data?.data || [])
+        .filter((fixture: any) => fixture.state_id === 1)
+        .map((fixture: any) => new Date(fixture.starting_at))
+        .filter((date: Date) => !Number.isNaN(date.getTime()) && date.getTime() > now.getTime())
+        .sort((a: Date, b: Date) => a.getTime() - b.getTime());
+
+      if (futureNotStarted.length === 0) {
+        return "⏱️ Smart timing: nema NS utakmica, retry za 30 min";
+      }
+
+      const nextMatch = futureNotStarted[0];
+      const analysisAt = new Date(nextMatch.getTime() - 90 * 60 * 1000);
+      const waitMs = Math.max(60 * 1000, analysisAt.getTime() - now.getTime());
+      const waitMin = Math.ceil(waitMs / 60000);
+      return `⏱️ Smart timing: sledeća analiza za ~${waitMin} min (90 min pre kick-offa)`;
+    } catch (error: any) {
+      console.error("Status smart timing error:", error.response?.data || error.message);
+      return "⏱️ Smart timing: fallback 30 min (greška pri čitanju rasporeda)";
+    }
+  }
 // ============================================================
 // GET /api/config - Šalje ključeve frontendu
 // ============================================================
@@ -566,10 +609,11 @@ app.get("/api/config", (req, res) => {
       const status = sportmonksToken
         ? "✅ Aktivan"
         : "❌ Neaktivan (nema Sportmonks API ključa)";
+      const smartTiming = await getNextSmartTimingStatus(sportmonksToken);
       responseText =
         `📊 *Status sistema:* ${status}\n` +
         `🚀 Auto-Pilot: Aktivan\n` +
-        `⏱️ Interval: 30 min`;
+        smartTiming;
     } else if (text.startsWith("/help")) {
       responseText =
         "📖 *Dostupne komande:*\n/start\n/status\n/test\n/help";

@@ -51,16 +51,6 @@ export default function App() {
 
   // --- Helper to get key from any source ---
   const getGeminiKey = () => {
-    if (config?.geminiKey) return config.geminiKey;
-    try {
-      const env = (window as any).process?.env || (globalThis as any).process?.env;
-      if (env) {
-        if (env.API_KEY) return env.API_KEY;
-        if (env.GEMINI_API_KEY) return env.GEMINI_API_KEY;
-      }
-    } catch (e) {}
-    const meta = import.meta as any;
-    if (meta.env && meta.env.VITE_GEMINI_API_KEY) return meta.env.VITE_GEMINI_API_KEY;
     return null;
   };
 
@@ -113,7 +103,7 @@ export default function App() {
           const hasKeyInStudio = await (window as any).aistudio.hasSelectedApiKey();
           const data = await fetchConfig();
 
-          if (data.geminiKey || hasKeyInStudio || !!getGeminiKey()) {
+          if (hasKeyInStudio || !!getGeminiKey()) {
             const finalData = await fetchConfig();
             setConfig(finalData);
             setHasSelectedKey(true);

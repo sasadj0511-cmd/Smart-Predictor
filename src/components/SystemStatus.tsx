@@ -30,8 +30,8 @@ export const SystemStatus: React.FC<SystemStatusProps> = ({
         </div>
         <div className="flex justify-between items-center py-2 border-b border-slate-800">
           <span className="text-sm text-slate-400">Sportmonks API</span>
-          <span className={`text-sm font-mono ${config?.sportmonksToken ? 'text-green-400' : 'text-yellow-400'}`}>
-            {config?.sportmonksToken ? 'Povezan' : 'Mock Data'}
+          <span className={`text-sm font-mono ${config?.hasSportmonks ? 'text-green-400' : 'text-yellow-400'}`}>
+            {config?.hasSportmonks ? 'Povezan' : 'Mock Data'}
           </span>
         </div>
         <div className="flex justify-between items-center py-2 border-b border-slate-800">

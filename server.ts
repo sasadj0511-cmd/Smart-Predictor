@@ -8,7 +8,7 @@ const SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3";
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json());
 
@@ -18,7 +18,8 @@ async function startServer() {
 
   function getEnvVar(...keys: string[]): string | undefined {
     for (const key of keys) {
-      const val = process.env[key];
+      const raw = process.env[key];
+      const val = raw?.trim();
       if (val) return val;
     }
     return undefined;
@@ -49,6 +50,25 @@ async function startServer() {
       },
       timeout: 15000,
     });
+  }
+
+
+
+  async function sendTelegramMessage(
+    token: string,
+    chatId: string | number,
+    text: string,
+    parseMode: "Markdown" | "HTML" = "Markdown"
+  ) {
+    return axios.post(
+      `https://api.telegram.org/bot${token}/sendMessage`,
+      {
+        chat_id: chatId,
+        text,
+        parse_mode: parseMode,
+      },
+      { timeout: 15000 }
+    );
   }
 
   async function getNextSmartTimingStatus(token?: string): Promise<string> {
@@ -97,36 +117,24 @@ async function startServer() {
 // GET /api/config - Šalje ključeve frontendu
 // ============================================================
 app.get("/api/config", (req, res) => {
-  const geminiKey = getEnvVar("GEMINI_API_KEY", "API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY") || '';
-  const sportmonksToken = getEnvVar("SPORTMONKS_API_TOKEN", "VITE_SPORTMONKS_API_TOKEN") || '';
-  const telegramToken = getEnvVar("TELEGRAM_BOT_TOKEN", "VITE_TELEGRAM_BOT_TOKEN") || '';
-  const perplexityKey = getEnvVar("PERPLEXITY_API_KEY", "VITE_PERPLEXITY_API_KEY") || '';
-  
-  console.log('📋 Dijagnostika ključeva:');
-  console.log('  Gemini:', geminiKey ? `✅ Prisutan (${geminiKey.substring(0, 4)}...)` : '❌ Nedostaje');
-  console.log('  Sportmonks:', sportmonksToken ? `✅ Prisutan (${sportmonksToken.substring(0, 5)}...)` : '❌ Nedostaje');
-  console.log('  Telegram:', telegramToken ? '✅ Prisutan' : '❌ Nedostaje');
-  console.log('  Perplexity:', perplexityKey ? '✅ Prisutan' : '❌ Nedostaje');
-  
-  // Proveri i sirove env varijable
-  console.log('  Raw API_KEY:', process.env.API_KEY ? 'Yes' : 'No');
-  console.log('  Raw GEMINI_API_KEY:', process.env.GEMINI_API_KEY ? 'Yes' : 'No');
-  
-  res.json({ 
-    geminiKey,
-    hasGemini: !!geminiKey,
-    hasSportmonks: !!sportmonksToken,
-    hasTelegram: !!telegramToken,
-    hasPerplexity: !!perplexityKey,
+  const hasGemini = !!getEnvVar("GEMINI_API_KEY", "API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY");
+  const hasSportmonks = !!getEnvVar("SPORTMONKS_API_TOKEN", "VITE_SPORTMONKS_API_TOKEN");
+  const hasTelegram = !!getEnvVar("TELEGRAM_BOT_TOKEN", "VITE_TELEGRAM_BOT_TOKEN");
+  const hasPerplexity = !!getEnvVar("PERPLEXITY_API_KEY", "VITE_PERPLEXITY_API_KEY");
+
+  res.json({
+    hasGemini,
+    hasSportmonks,
+    hasTelegram,
+    hasPerplexity,
     envStatus: {
-      gemini: !!geminiKey,
-      sportmonks: !!sportmonksToken,
-      telegram: !!telegramToken,
-      perplexity: !!perplexityKey
-    }
+      gemini: hasGemini,
+      sportmonks: hasSportmonks,
+      telegram: hasTelegram,
+      perplexity: hasPerplexity,
+    },
   });
 });
-
   // ============================================================
   // GET /api/matches
   // ============================================================
@@ -431,14 +439,7 @@ app.get("/api/config", (req, res) => {
     console.log(`📤 Sending Telegram message to ${chatId}...`);
 
     try {
-      const response = await axios.post(
-        `https://api.telegram.org/bot${token}/sendMessage`,
-        {
-          chat_id: chatId,
-          text: message,
-          parse_mode: "Markdown",
-        }
-      );
+      const response = await sendTelegramMessage(token, chatId, message);
       console.log("✅ Telegram message sent:", response.data.ok);
       res.json({ success: true });
     } catch (error: any) {
@@ -542,14 +543,7 @@ app.get("/api/config", (req, res) => {
     }
 
     try {
-      await axios.post(
-        `https://api.telegram.org/bot${token}/sendMessage`,
-        {
-          chat_id: chatId,
-          text: "✅ Football Prediction Bot je spreman!",
-          parse_mode: "Markdown",
-        }
-      );
+      await sendTelegramMessage(token, chatId, "✅ Football Prediction Bot je spreman!");
       res.json({ success: true, message: "Test poruka poslata!" });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message });
@@ -624,14 +618,7 @@ app.get("/api/config", (req, res) => {
 
     if (responseText) {
       try {
-        await axios.post(
-          `https://api.telegram.org/bot${token}/sendMessage`,
-          {
-            chat_id: chatId,
-            text: responseText,
-            parse_mode: "Markdown",
-          }
-        );
+        await sendTelegramMessage(token, chatId, responseText);
       } catch (error: any) {
         console.error(
           "Webhook reply error:",
@@ -641,6 +628,15 @@ app.get("/api/config", (req, res) => {
     }
 
     res.sendStatus(200);
+  });
+
+  // ============================================================
+  // GET /api/perplexity-status
+  // Must be defined before production SPA catch-all route.
+  // ============================================================
+  app.get("/api/perplexity-status", (req, res) => {
+    const hasPerplexity = Boolean(process.env.PERPLEXITY_API_KEY);
+    return res.json({ success: true, hasPerplexity });
   });
 
   // ============================================================

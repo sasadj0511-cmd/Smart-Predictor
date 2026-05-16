@@ -8,9 +8,13 @@ const SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3";
 
 async function startServer() {
   const app = express();
-  const PORT = Number(process.env.PORT) || 3000;
+  const PORT = Number(process.env.PORT) || 3001;
 
   app.use(express.json());
+
+  app.get("/api/health", (req, res) => {
+      res.json({ ok: true, timestamp: new Date().toISOString() });
+  });
 
   // ============================================================
   // HELPER FUNCTIONS

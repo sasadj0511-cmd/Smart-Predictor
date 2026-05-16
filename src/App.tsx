@@ -30,9 +30,11 @@ import { Logs } from './components/Logs';
 import { PredictionsList } from './components/PredictionsList';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { ProfitChart } from './components/ProfitChart';
+import { AIChatPanel } from './components/AIChatPanel';
 
 // --- Utils ---
 import { calculateStats } from './lib/stats';
+import { sendChatMessage } from './services/geminiService';
 
 export default function App() {
   // --- Auth & Data Hooks ---
@@ -202,6 +204,25 @@ export default function App() {
     }
   };
 
+  const handleSendAiChatMessage = async (message: string) => {
+    let apiKey = getGeminiKey();
+    if (!apiKey) {
+      addLog('AI chat traži Gemini ključ. Otvaram selekciju...', 'warning');
+      await openKeySelection();
+      apiKey = getGeminiKey();
+    }
+
+    if (!apiKey) {
+      throw new Error('Gemini API ključ nije dostupan.');
+    }
+
+    return sendChatMessage(
+      apiKey,
+      message,
+      'Odgovaraj na srpskom jeziku, kratko i praktično, fokus na sportsku analitiku i value betting.'
+    );
+  };
+
   if (!user) {
     return <LoginScreen onLogin={login} />;
   }
@@ -278,6 +299,10 @@ export default function App() {
 
           {/* PROFIT CHART */}
           <ProfitChart data={statsData.history} />
+
+          <div className="card">
+            <AIChatPanel onSendMessage={handleSendAiChatMessage} />
+          </div>
 
           <div className="card h-full">
             <PredictionsList predictions={predictions} />

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Zap, Globe } from 'lucide-react';
+import { Zap, Globe, Loader2 } from 'lucide-react';
 
 interface LoginScreenProps {
   onLogin: () => void;

@@ -68,8 +68,8 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="h-8 w-px bg-slate-800 mx-2"></div>
           
           <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-full pl-1 pr-4 py-1">
-            <img src={user.photoURL} alt="" className="w-8 h-8 rounded-full border border-slate-700" />
-            <span className="text-sm font-medium text-slate-300 hidden sm:inline">{user.displayName}</span>
+            <img src={user?.photoURL || ''} alt="" className="w-8 h-8 rounded-full border border-slate-700" />
+            <span className="text-sm font-medium text-slate-300 hidden sm:inline">{user?.displayName || 'Demo User'}</span>
           </div>
         </div>
       </div>

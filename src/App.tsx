@@ -202,9 +202,6 @@ export default function App() {
     }
   };
 
-  if (!user) {
-    return <LoginScreen onLogin={login} />;
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30 relative overflow-hidden">

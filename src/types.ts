@@ -15,6 +15,7 @@ export interface Match {
 
 export interface Prediction {
   id: string;
+  ownerUid?: string;
   fixture_id: number;
   match_name: string;
   prediction: string;

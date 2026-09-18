@@ -1,3 +1,5 @@
+import { auth } from '../firebase';
+
 const API_PROXY_PREFIX = '/api';
 
 function buildApiProxyUrl(path: string): string {
@@ -7,7 +9,11 @@ function buildApiProxyUrl(path: string): string {
 
 async function safeFetch(url: string, options?: RequestInit) {
   try {
-    const res = await fetch(url, options);
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) throw new Error('Prijava je obavezna.');
+    const headers = new Headers(options?.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch(url, { ...options, headers });
     const contentType = res.headers.get("content-type");
 
     if (!res.ok) {

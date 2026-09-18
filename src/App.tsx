@@ -36,7 +36,7 @@ import { calculateStats } from './lib/stats';
 
 export default function App() {
   // --- Auth & Data Hooks ---
-  const { user, login } = useAuth();
+  const { user, loading, login } = useAuth();
   const predictions = usePredictions(user);
 
   // --- Local State ---
@@ -45,13 +45,12 @@ export default function App() {
   const [config, setConfig] = useState<any>(null);
   const [telegramStatus, setTelegramStatus] = useState<any>(null);
   const [isOpeningKeySelection, setIsOpeningKeySelection] = useState(false);
-  const [hasSelectedKey, setHasSelectedKey] = useState(false);
 
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // --- Helper to get key from any source ---
   const getGeminiKey = () => {
-    return null;
+    return config?.hasGemini ? 'server-managed' : null;
   };
 
   const addLog = (message: string, type: LogEntry['type'] = 'info') => {
@@ -94,25 +93,15 @@ export default function App() {
     setIsOpeningKeySelection(true);
 
     try {
-      if (typeof window !== 'undefined' && (window as any).aistudio) {
-        addLog('Otvaram prozor za izbor API ključa...', 'info');
-        await (window as any).aistudio.openSelectKey();
-
-        for (let i = 0; i < 5; i++) {
-          await new Promise(r => setTimeout(r, 2000));
-          const hasKeyInStudio = await (window as any).aistudio.hasSelectedApiKey();
-          const data = await fetchConfig();
-
-          if (hasKeyInStudio || !!getGeminiKey()) {
-            const finalData = await fetchConfig();
-            setConfig(finalData);
-            setHasSelectedKey(true);
-            addLog('Gemini API ključ prepoznat!', 'success');
-            return finalData;
-          }
-          addLog(`Provera ključa... Pokušaj ${i + 1}/5`, 'info');
-        }
-      }
+      const data = await fetchConfig();
+      setConfig(data);
+      addLog(
+        data.hasGemini
+          ? 'Gemini API je bezbedno konfigurisan na serveru.'
+          : 'Gemini ključ nije podešen na serveru. Dodaj GEMINI_API_KEY u Render Secrets.',
+        data.hasGemini ? 'success' : 'warning'
+      );
+      return data;
     } catch (error) {
       addLog('Greška pri izboru ključa: ' + error, 'error');
     } finally {
@@ -123,7 +112,7 @@ export default function App() {
 
   // --- Auto-Pilot Hook ---
   const { isAnalyzing, status, currentMatch, analysisCount, matches, startAutoPilotCycle } = useAutoPilot(
-    isAutoPilot,
+    isAutoPilot && !!user && !!config?.hasGemini,
     predictions,
     config,
     getGeminiKey,
@@ -137,16 +126,6 @@ export default function App() {
 
   // --- Initialization ---
   useEffect(() => {
-    const checkApiKey = async () => {
-      if (typeof window !== 'undefined' && (window as any).aistudio) {
-        const selected = await (window as any).aistudio.hasSelectedApiKey();
-        const hasKey = selected || !!getGeminiKey();
-        setHasSelectedKey(hasKey);
-        if (hasKey) addLog('Gemini API ključ je spreman.', 'success');
-      }
-    };
-    checkApiKey();
-
     fetchConfig()
       .then(data => {
         setConfig(data);
@@ -203,6 +182,18 @@ export default function App() {
   };
 
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-200 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={login} />;
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-slate-200 font-sans selection:bg-indigo-500/30 relative overflow-hidden">
       {/* glow efekat */}
@@ -230,14 +221,16 @@ export default function App() {
             />
           </div>
 
-          <div className="card">
-            <TelegramConfig
-              status={telegramStatus}
-              onSetup={handleSetupTelegram}
-              onTest={handleTestTelegram}
-              onRefresh={handleCheckTelegramStatus}
-            />
-          </div>
+          {config?.isAdmin && (
+            <div className="card">
+              <TelegramConfig
+                status={telegramStatus}
+                onSetup={handleSetupTelegram}
+                onTest={handleTestTelegram}
+                onRefresh={handleCheckTelegramStatus}
+              />
+            </div>
+          )}
 
           <div className="card">
             <SystemStatus

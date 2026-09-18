@@ -4,7 +4,7 @@ import { fetchMatches, fetchMatchStats, sendToTelegram } from '../services/match
 import { getPrediction } from '../services/geminiService';
 import { matchProb } from '../services/poisson';
 import { pickValueBet } from '../services/valueEngine';
-import { db } from '../firebase';
+import { auth, db } from '../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 
 export function useAutoPilot(
@@ -100,6 +100,7 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
       );
 
       const predictionData = {
+        ownerUid: auth.currentUser?.uid,
         fixture_id: Number(match.id),
         match_name: `${match.homeTeam} vs ${match.awayTeam}`,
         prediction: finalPrediction,
@@ -107,7 +108,7 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
         odds: valueResult.odds,
         aiProb: valueResult.aiProb,
         stake: 10, // Default stake
-        result: Math.random() > 0.5 ? 'WIN' : 'LOSS', // Mock result for testing profit engine
+        result: 'PENDING',
         analysis: result.analysis || 'Nema analize',
         detailed_analysis: result.detailed_analysis || '',
         weather: result.weather || '',
@@ -121,8 +122,10 @@ VALUE: ${valueResult.pick} (${valueResult.edge.toFixed(3)})
         half_time_conf: result.half_time_conf || 0,
         injuries: result.injuries || '',
         timestamp: serverTimestamp(),
-        status: 'completed'
+        status: 'pending'
       };
+
+      if (!predictionData.ownerUid) throw new Error('Prijava je obavezna za čuvanje predikcije.');
 
       await addDoc(collection(db, 'predictions'), predictionData);
       

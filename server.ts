@@ -3,6 +3,10 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import axios from "axios";
+import { GoogleGenAI } from "@google/genai";
+import { cert, getApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
+import { DecodedIdToken, getAuth as getAdminAuth } from "firebase-admin/auth";
+import type { NextFunction, Request, Response } from "express";
 
 const SPORTMONKS_BASE_URL = "https://api.sportmonks.com/v3";
 
@@ -12,9 +16,55 @@ async function startServer() {
 
   app.use(express.json());
 
+  const firebaseProjectId = process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0309639121";
+  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+  if (getApps().length === 0) {
+    initializeAdminApp(serviceAccountJson
+      ? { credential: cert(JSON.parse(serviceAccountJson)), projectId: firebaseProjectId }
+      : { projectId: firebaseProjectId });
+  }
+
+  type AuthenticatedRequest = Request & { user?: DecodedIdToken };
+
+  const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
+    const header = req.get("authorization") || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    if (!token) return res.status(401).json({ success: false, error: "Authentication required" });
+    try {
+      (req as AuthenticatedRequest).user = await getAdminAuth().verifyIdToken(token, true);
+      return next();
+    } catch {
+      return res.status(401).json({ success: false, error: "Invalid or expired authentication token" });
+    }
+  };
+
+  const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+    const adminUid = process.env.ADMIN_FIREBASE_UID?.trim();
+    const uid = (req as AuthenticatedRequest).user?.uid;
+    if (!adminUid) return res.status(503).json({ success: false, error: "Admin access is not configured" });
+    if (uid !== adminUid) return res.status(403).json({ success: false, error: "Admin access required" });
+    return next();
+  };
+
+  const usage = new Map<string, { day: string; count: number; lastRequestAt: number }>();
+  const requireAiQuota = (req: Request, res: Response, next: NextFunction) => {
+    const uid = (req as AuthenticatedRequest).user?.uid;
+    if (!uid) return res.status(401).json({ success: false, error: "Authentication required" });
+    const day = new Date().toISOString().slice(0, 10);
+    const now = Date.now();
+    const current = usage.get(uid);
+    const record = !current || current.day !== day ? { day, count: 0, lastRequestAt: 0 } : current;
+    if (now - record.lastRequestAt < 3000) return res.status(429).json({ success: false, error: "Please wait before sending another AI request" });
+    if (record.count >= 50) return res.status(429).json({ success: false, error: "Daily AI request limit reached" });
+    usage.set(uid, { day, count: record.count + 1, lastRequestAt: now });
+    return next();
+  };
+
   app.get("/api/health", (req, res) => {
       res.json({ ok: true, timestamp: new Date().toISOString() });
   });
+
+  app.use("/api", requireAuth);
 
   // ============================================================
   // HELPER FUNCTIONS
@@ -131,6 +181,8 @@ app.get("/api/config", (req, res) => {
     hasSportmonks,
     hasTelegram,
     hasPerplexity,
+    isAdmin: Boolean(process.env.ADMIN_FIREBASE_UID) &&
+      (req as AuthenticatedRequest).user?.uid === process.env.ADMIN_FIREBASE_UID,
     envStatus: {
       gemini: hasGemini,
       sportmonks: hasSportmonks,
@@ -139,6 +191,47 @@ app.get("/api/config", (req, res) => {
     },
   });
 });
+
+  app.post("/api/gemini/prediction", requireAiQuota, async (req, res) => {
+    const apiKey = getEnvVar("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY");
+    if (!apiKey) return res.status(503).json({ success: false, error: "Gemini is not configured" });
+    const { match, statsData } = req.body || {};
+    if (!match?.homeTeam || !match?.awayTeam || !match?.competition) {
+      return res.status(400).json({ success: false, error: "Valid match data is required" });
+    }
+    const prompt = `Ti si profesionalni fudbalski analitičar. Ne daj konačan 1/X/2 tip. Vrati samo JSON sa poljima: match_time, weather, analysis, detailed_analysis, over_under, over_under_conf, btts, btts_conf, goals, half_time, half_time_conf, injuries.\nMEČ: ${match.homeTeam} vs ${match.awayTeam}\nLIGA: ${match.competition}\nPODACI: ${JSON.stringify(statsData || {}).slice(0, 12000)}`;
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        config: { responseMimeType: "application/json", temperature: 0.4 },
+      });
+      return res.json(response.text ? JSON.parse(response.text) : {});
+    } catch (error: any) {
+      console.error("Gemini prediction error:", error?.message);
+      return res.status(502).json({ success: false, error: "Gemini request failed" });
+    }
+  });
+
+  app.post("/api/gemini/chat", requireAiQuota, async (req, res) => {
+    const apiKey = getEnvVar("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY");
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!apiKey) return res.status(503).json({ success: false, error: "Gemini is not configured" });
+    if (!message || message.length > 2000) return res.status(400).json({ success: false, error: "Message must contain 1-2000 characters" });
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: [{ role: "user", parts: [{ text: `Odgovaraj na srpskom, kratko i praktično, fokus na sportsku analitiku i value betting.\n\nKorisnik: ${message}` }] }],
+        config: { temperature: 0.5 },
+      });
+      return res.json({ reply: response.text || "AI nije vratio odgovor." });
+    } catch (error: any) {
+      console.error("Gemini chat error:", error?.message);
+      return res.status(502).json({ success: false, error: "Gemini request failed" });
+    }
+  });
   // ============================================================
   // GET /api/matches
   // ============================================================
@@ -379,7 +472,7 @@ app.get("/api/config", (req, res) => {
   // ============================================================
   // GET /api/diag-telegram
   // ============================================================
-  app.get("/api/diag-telegram", async (req, res) => {
+  app.get("/api/diag-telegram", requireAdmin, async (req, res) => {
     const token = getEnvVar("TELEGRAM_BOT_TOKEN", "VITE_TELEGRAM_BOT_TOKEN");
     const chatId = getEnvVar("TELEGRAM_CHAT_ID", "VITE_TELEGRAM_CHAT_ID");
 
@@ -412,7 +505,7 @@ app.get("/api/config", (req, res) => {
   // ============================================================
   // POST /api/telegram
   // ============================================================
-  app.post("/api/telegram", async (req, res) => {
+  app.post("/api/telegram", requireAdmin, async (req, res) => {
     const { message } = req.body;
 
     if (!message || typeof message !== "string") {
@@ -460,7 +553,7 @@ app.get("/api/config", (req, res) => {
   // ============================================================
   // GET /api/webhook-info
   // ============================================================
-  app.get("/api/webhook-info", async (req, res) => {
+  app.get("/api/webhook-info", requireAdmin, async (req, res) => {
     const token = getEnvVar("TELEGRAM_BOT_TOKEN", "VITE_TELEGRAM_BOT_TOKEN");
     if (!token)
       return res
@@ -480,7 +573,7 @@ app.get("/api/config", (req, res) => {
   // ============================================================
   // GET /api/setup-webhook
   // ============================================================
-  app.get("/api/setup-webhook", async (req, res) => {
+  app.get("/api/setup-webhook", requireAdmin, async (req, res) => {
     const token = getEnvVar("TELEGRAM_BOT_TOKEN", "VITE_TELEGRAM_BOT_TOKEN");
     const queryUrl = req.query.url as string | undefined;
     const appUrl =
@@ -515,7 +608,13 @@ app.get("/api/config", (req, res) => {
       console.log(`🔧 Setting webhook to: ${webhookUrl}`);
       const response = await axios.post(
         `https://api.telegram.org/bot${token}/setWebhook`,
-        { url: webhookUrl, drop_pending_updates: true }
+        {
+          url: webhookUrl,
+          drop_pending_updates: true,
+          ...(process.env.TELEGRAM_WEBHOOK_SECRET
+            ? { secret_token: process.env.TELEGRAM_WEBHOOK_SECRET }
+            : {}),
+        }
       );
       res.json({
         success: true,
@@ -535,7 +634,7 @@ app.get("/api/config", (req, res) => {
   // ============================================================
   // GET /api/test-telegram
   // ============================================================
-  app.get("/api/test-telegram", async (req, res) => {
+  app.get("/api/test-telegram", requireAdmin, async (req, res) => {
     const token = getEnvVar("TELEGRAM_BOT_TOKEN", "VITE_TELEGRAM_BOT_TOKEN");
     const chatId = getEnvVar("TELEGRAM_CHAT_ID", "VITE_TELEGRAM_CHAT_ID");
 
@@ -562,6 +661,10 @@ app.get("/api/config", (req, res) => {
   });
 
   app.post("/webhook", async (req, res) => {
+    const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (!webhookSecret || req.get("X-Telegram-Bot-Api-Secret-Token") !== webhookSecret) {
+      return res.sendStatus(403);
+    }
     const userAgent = req.get("User-Agent") || "Unknown";
     console.log(
       `📥 Webhook update from ${userAgent}:`,

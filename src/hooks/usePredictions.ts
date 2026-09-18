@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '../firebase';
 import { Prediction, OperationType } from '../types';
 import { handleFirestoreError } from '../services/firestoreService';
@@ -10,7 +10,12 @@ export function usePredictions(user: any) {
   useEffect(() => {
     if (!user) return;
 
-    const q = query(collection(db, 'predictions'), orderBy('timestamp', 'desc'), limit(100));
+    const q = query(
+      collection(db, 'predictions'),
+      where('ownerUid', '==', user.uid),
+      orderBy('timestamp', 'desc'),
+      limit(100)
+    );
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const preds: Prediction[] = [];
       snapshot.forEach((d) => {
